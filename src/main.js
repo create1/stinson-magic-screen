@@ -20,6 +20,7 @@ const RETRY_TERMINAL_MS = 60000;
 const PLATE_SWAP_FALLBACK_MS = 1500;
 const CREDIT_POLL_MS = 10000;
 const OUT_OF_CREDITS = "Out of Decart credits. Top up, then click to start.";
+const PASSCODE_REQUIRED = "Passcode required.";
 
 const $ = (sel) => document.querySelector(sel);
 const video = $("#output");
@@ -27,6 +28,7 @@ const freeze = $("#freeze");
 const freezeCtx = freeze.getContext("2d");
 const plates = [...document.querySelectorAll(".plate")];
 const startButton = $("#start");
+const gate = $("#gate");
 const operator = $("#operator");
 
 const state = {
@@ -244,6 +246,7 @@ async function ensureCamera() {
 
 async function fetchToken() {
   const res = await fetch("/api/token", { cache: "no-store" });
+  if (res.status === 401) throw new Error(PASSCODE_REQUIRED);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || `token request failed (${res.status})`);
   return body.apiKey;
@@ -315,6 +318,10 @@ async function connect() {
   } catch (err) {
     state.lastError = String(err?.message || err);
     log("connect failed", state.lastError);
+    if (state.lastError.includes(PASSCODE_REQUIRED)) {
+      halt(PASSCODE_REQUIRED);
+      return showGate("Please enter the passcode again.");
+    }
     if (/credit/i.test(state.lastError)) return halt(OUT_OF_CREDITS);
     if (isCurrent()) {
       state.connecting = false;
@@ -420,6 +427,7 @@ startButton.addEventListener("click", async () => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.target instanceof HTMLInputElement) return;
   if (e.repeat && e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
   switch (e.key) {
     case "ArrowRight":
@@ -518,7 +526,42 @@ window.magicScreen = {
 
 setInterval(tick, 100);
 
+// ---------- Passcode gate ----------
+
+function showGate(message = "") {
+  startButton.hidden = true;
+  gate.hidden = false;
+  gate.querySelector(".error").textContent = message;
+  gate.querySelector("input").focus();
+}
+
+gate.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = gate.querySelector("input");
+  const error = gate.querySelector(".error");
+  error.textContent = "";
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passcode: input.value }),
+  }).catch(() => null);
+  if (!res?.ok) {
+    const body = await res?.json().catch(() => ({}));
+    error.textContent = body?.error || "Could not reach the server.";
+    input.select();
+    return;
+  }
+  input.value = "";
+  gate.hidden = true;
+  await enterFullscreen();
+  start();
+});
+
 (async () => {
+  const session = await fetch("/api/session", { cache: "no-store" })
+    .then((r) => r.json())
+    .catch(() => ({}));
+  if (!session.authenticated) return showGate();
   const ok = await enterFullscreen();
   // ?wait always shows "Click to start." (e.g. a kiosk window that should not stream until someone clicks).
   if (!params.has("wait") && (ok || isFullscreenLike() || params.has("autostart"))) start();

@@ -15,6 +15,12 @@
         <div class="plate"><img class="thumb" alt="" /><span class="name"></span></div>
       </div>
       <button id="start" type="button" hidden>Click to start.</button>
+      <form id="gate" hidden>
+        <label for="passcode">Passcode</label>
+        <input id="passcode" name="passcode" type="password" autocomplete="current-password" required />
+        <button type="submit">Enter</button>
+        <p class="error" role="alert"></p>
+      </form>
       <aside id="operator" hidden>
         <img class="card" alt="" />
         <div class="details">
