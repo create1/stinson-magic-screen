@@ -4,7 +4,7 @@ Set `DECART_API_KEY` and `MAGIC_SCREEN_PASSCODE` (in `.env.local` locally, or as
 
 ## Hosted (Vercel)
 
-A separate Vercel project with **Root Directory `magic-screen`** (framework Vite, from `vercel.json`) and environment variables `DECART_API_KEY` and `MAGIC_SCREEN_PASSCODE`. `api/[route].js` serves `/api/session`, `/api/login`, `/api/token`, `/api/credits`, and `/api/config`. The catering site's project ignores this folder (root `.vercelignore`).
+Import `create1/stinson-magic-screen` at [vercel.com/new](https://vercel.com/new) with **Root Directory** left as the repo root (framework Vite, from `vercel.json`) and environment variables `DECART_API_KEY` and `MAGIC_SCREEN_PASSCODE`. `api/[route].js` serves `/api/session`, `/api/login`, `/api/token`, `/api/credits`, and `/api/config`.
 
 Open the URL in Chrome, enter the passcode once (remembered for 30 days on that browser), allow the camera. For the display computer, kiosk mode:
 
@@ -22,7 +22,8 @@ Use a persistent `--user-data-dir` so the passcode cookie and camera permission 
 Needs Node.js 20.19+ (or 22.12+) and Google Chrome.
 
 ```bash
-cd magic-screen
+git clone https://github.com/create1/stinson-magic-screen.git
+cd stinson-magic-screen
 npm install
 cp .env.example .env.local   # then put the real key and a passcode in .env.local
 npm start                    # builds and serves on http://127.0.0.1:4173
