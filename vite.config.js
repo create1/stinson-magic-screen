@@ -10,6 +10,7 @@ function decartTokenServer(env) {
     resolution: env.DECART_RESOLUTION || null,
     selfAnchor: env.DECART_SELF_ANCHOR === "true",
     enhance: env.DECART_ENHANCE === "true",
+    minCredits: Number(env.DECART_MIN_CREDITS || 30),
     liveReference: env.DECART_LIVE_REFERENCE === "true",
   };
 
@@ -18,6 +19,19 @@ function decartTokenServer(env) {
     if (path === "/api/config") {
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(config));
+      return;
+    }
+    if (path === "/api/credits") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store");
+      try {
+        const r = await fetch("https://api.decart.ai/v1/credits", { headers: { "x-api-key": env.DECART_API_KEY || "" } });
+        res.statusCode = r.status;
+        res.end(await r.text());
+      } catch (err) {
+        res.statusCode = 502;
+        res.end(JSON.stringify({ error: String(err?.message || err) }));
+      }
       return;
     }
     if (path !== "/api/token") return next();

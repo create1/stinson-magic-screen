@@ -38,4 +38,6 @@ Right / Left: next / previous character · Space: pause or resume the 30 s timer
 - Prompt enhancement is off by default (`DECART_ENHANCE=true` turns it on). With it on, Lucy rewrote some characters into a different person (for example a bearded man for Satan's Priest).
 - `DECART_LIVE_REFERENCE=true` sends a fresh camera frame as Lucy's reference image at each swap. It kept the face but also kept the person's own clothes and background, so costumes mostly vanished; off by default.
 - If the stream drops, the last good frame stays up, the timer pauses, and the session is retried on the same character.
+- Credits: the app checks the Decart balance before connecting and every 10 s while streaming. Below `DECART_MIN_CREDITS` (default 30), or if Decart reports insufficient credits, it disconnects, stops retrying, and shows "Out of Decart credits. Top up, then click to start."
+- `?wait` always shows "Click to start." even in a kiosk window.
 - Test-only URL params: `?seconds=8` shortens every slot, `?start=5` begins at roster position 5.

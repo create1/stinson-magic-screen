@@ -18,6 +18,8 @@ const RETRY_MIN_MS = 2000;
 const RETRY_MAX_MS = 30000;
 const RETRY_TERMINAL_MS = 60000;
 const PLATE_SWAP_FALLBACK_MS = 1500;
+const CREDIT_POLL_MS = 10000;
+const OUT_OF_CREDITS = "Out of Decart credits. Top up, then click to start.";
 
 const $ = (sel) => document.querySelector(sel);
 const video = $("#output");
@@ -48,6 +50,8 @@ const state = {
   lastSnapshotAt: 0,
   activePlate: 0,
   sessionSeconds: 0,
+  credits: null,
+  halted: false,
   lastError: null,
   swaps: [],
 };
@@ -258,6 +262,7 @@ async function connect() {
       state.decart = createDecartClient({ apiKeyProvider: fetchToken });
     }
     const { model, speed, resolution, selfAnchor } = state.config;
+    if (!(await hasCredits())) return halt(OUT_OF_CREDITS);
     const camera = await ensureCamera();
     const index = state.index;
     if (state.config.liveReference && !cameraView.videoWidth) {
@@ -302,13 +307,15 @@ async function connect() {
       if (!isCurrent()) return;
       state.lastError = `session ended: ${reason}`;
       log(state.lastError);
-      const terminal = ["insufficient_credits", "session_limit", "policy_violation"].includes(reason);
+      if (reason === "insufficient_credits") return halt(OUT_OF_CREDITS);
+      const terminal = ["session_limit", "policy_violation"].includes(reason);
       scheduleRetry(reason, terminal ? RETRY_TERMINAL_MS : undefined);
     });
     log("connected", client.sessionId, model);
   } catch (err) {
     state.lastError = String(err?.message || err);
     log("connect failed", state.lastError);
+    if (/credit/i.test(state.lastError)) return halt(OUT_OF_CREDITS);
     if (isCurrent()) {
       state.connecting = false;
       scheduleRetry("connect failed");
@@ -318,8 +325,51 @@ async function connect() {
   }
 }
 
+// Credit balance via the local server; null when it can't be read (then streaming is not blocked).
+async function fetchCredits() {
+  try {
+    const res = await fetch("/api/credits", { cache: "no-store" });
+    if (!res.ok) return null;
+    const { credits } = await res.json();
+    state.credits = typeof credits === "number" ? credits : null;
+    return state.credits;
+  } catch {
+    return null;
+  }
+}
+
+async function hasCredits() {
+  const credits = await fetchCredits();
+  return credits === null || credits >= (state.config?.minCredits ?? 30);
+}
+
+setInterval(async () => {
+  if (!state.client || state.halted) return;
+  if (!(await hasCredits())) halt(OUT_OF_CREDITS);
+}, CREDIT_POLL_MS);
+
+// Stops streaming for good (no retries) and says why; a click starts again.
+function halt(message) {
+  state.halted = true;
+  state.generation++;
+  clearTimeout(state.retryTimer);
+  state.retryTimer = null;
+  const old = state.client;
+  state.client = null;
+  state.connecting = false;
+  state.connection = "stopped";
+  state.lastError = message;
+  try {
+    old?.disconnect();
+  } catch {}
+  log("halted:", message, "credits:", state.credits);
+  state.started = false;
+  startButton.textContent = message;
+  startButton.hidden = false;
+}
+
 function scheduleRetry(reason, delay) {
-  if (state.retryTimer) return;
+  if (state.retryTimer || state.halted) return;
   state.generation++;
   const old = state.client;
   state.client = null;
@@ -357,6 +407,7 @@ async function enterFullscreen() {
 function start() {
   if (state.started) return;
   state.started = true;
+  state.halted = false;
   startButton.hidden = true;
   showPlate(current(), true);
   preloadCard((state.index + 1) % characters.length);
@@ -422,6 +473,7 @@ function renderOperator() {
     connection: state.connection,
     remaining: `${Math.max(0, state.remainingMs / 1000).toFixed(1)}s${state.paused ? " (paused)" : ""}`,
     session: `${state.sessionSeconds}s billed`,
+    credits: state.credits ?? "…",
     model: state.config ? `${state.config.model}${state.config.speed ? ` (${state.config.speed})` : ""}` : "…",
     error: state.lastError || "—",
   };
@@ -451,6 +503,8 @@ window.magicScreen = {
     healthy: isHealthy(),
     sessionId: state.client?.sessionId ?? null,
     sessionSeconds: state.sessionSeconds,
+    credits: state.credits,
+    halted: state.halted,
     swaps: state.swaps,
     lastError: state.lastError,
   }),
@@ -466,6 +520,7 @@ setInterval(tick, 100);
 
 (async () => {
   const ok = await enterFullscreen();
-  if (ok || isFullscreenLike() || params.has("autostart")) start();
+  // ?wait always shows "Click to start." (e.g. a kiosk window that should not stream until someone clicks).
+  if (!params.has("wait") && (ok || isFullscreenLike() || params.has("autostart"))) start();
   else startButton.hidden = false;
 })();
