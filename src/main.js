@@ -1,12 +1,16 @@
 import "@fontsource/cormorant-sc/500.css";
 import "./style.css";
 import { createDecartClient, models } from "@decartai/sdk";
-import { characters } from "./characters.js";
+import { characters as allCharacters } from "./characters.js";
 
 const params = new URLSearchParams(location.search);
 // ?seconds=N shortens every slot (testing only); ?start=N begins at roster position N (1-based).
 const secondsOverride = Number(params.get("seconds")) || null;
 const startPosition = Math.max(1, Number(params.get("start")) || 1);
+// ?only=4,2,6 rotates just those roster positions (testing only).
+const only = (params.get("only") || "").split(",").map(Number).filter((n) => allCharacters[n - 1]);
+const characters = only.length ? only.map((n) => allCharacters[n - 1]) : allCharacters;
+const REFERENCE_PREFIX = "Use the reference photo only for the person's face and identity. ";
 
 const FRAME_STALL_MS = 1500;
 const SNAPSHOT_EVERY_MS = 500;
@@ -119,7 +123,7 @@ async function applyPrompt() {
   state.appliedIndex = index;
   state.lastApplyAt = performance.now();
   try {
-    await client.set({ prompt: characters[index].prompt, enhance: state.config.enhance });
+    await client.set(await lucyInput(characters[index]));
     log("prompt applied", characters[index].id);
     return true;
   } catch (err) {
@@ -178,6 +182,34 @@ function attachStream(stream) {
   video.play().catch(() => {});
 }
 
+// ---------- Lucy input (prompt + optional live reference frame) ----------
+
+const cameraView = document.createElement("video");
+cameraView.muted = true;
+cameraView.playsInline = true;
+const referenceCanvas = document.createElement("canvas");
+
+// A fresh mirrored frame of whoever is in front of the camera, so Lucy anchors to their own face.
+async function captureReference() {
+  if (!cameraView.videoWidth) return null;
+  const w = Math.min(960, cameraView.videoWidth);
+  const h = Math.round((w * cameraView.videoHeight) / cameraView.videoWidth);
+  referenceCanvas.width = w;
+  referenceCanvas.height = h;
+  const ctx = referenceCanvas.getContext("2d");
+  ctx.setTransform(-1, 0, 0, 1, w, 0);
+  ctx.drawImage(cameraView, 0, 0, w, h);
+  return new Promise((resolve) => referenceCanvas.toBlob(resolve, "image/jpeg", 0.85));
+}
+
+async function lucyInput(character) {
+  const enhance = state.config.enhance;
+  if (!state.config.liveReference) return { prompt: character.prompt, enhance };
+  const image = await captureReference();
+  if (!image) return { prompt: character.prompt, enhance };
+  return { prompt: REFERENCE_PREFIX + character.prompt, enhance, image };
+}
+
 // ---------- Camera + Decart session ----------
 
 async function ensureCamera() {
@@ -201,6 +233,8 @@ async function ensureCamera() {
     scheduleRetry("camera");
   });
   state.camera = stream;
+  cameraView.srcObject = stream;
+  await cameraView.play().catch(() => {});
   return stream;
 }
 
@@ -220,15 +254,23 @@ async function connect() {
     if (!state.config) {
       state.config = await (await fetch("/api/config")).json();
       if (params.has("enhance")) state.config.enhance = params.get("enhance") === "true";
+      if (params.has("ref")) state.config.liveReference = params.get("ref") === "true";
       state.decart = createDecartClient({ apiKeyProvider: fetchToken });
     }
     const { model, speed, resolution, selfAnchor } = state.config;
     const camera = await ensureCamera();
     const index = state.index;
+    if (state.config.liveReference && !cameraView.videoWidth) {
+      await new Promise((r) => cameraView.addEventListener("loadeddata", r, { once: true }));
+    }
+    const input = await lucyInput(characters[index]);
     const client = await state.decart.realtime.connect(camera, {
       model: models.realtime(model),
       mirror: true,
-      initialState: { prompt: { text: characters[index].prompt, enhance: state.config.enhance } },
+      initialState: {
+        prompt: { text: input.prompt, enhance: input.enhance },
+        ...(input.image ? { image: input.image } : {}),
+      },
       ...(speed ? { speed } : {}),
       ...(resolution ? { resolution } : {}),
       ...(selfAnchor ? {} : { queryParams: { self_anchor: "false" } }),
@@ -390,6 +432,15 @@ function renderOperator() {
 
 window.magicScreen = {
   state,
+  inputFrame: async () => {
+    const blob = await captureReference();
+    if (!blob) return null;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  },
   characters,
   status: () => ({
     character: current().id,

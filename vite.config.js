@@ -10,6 +10,7 @@ function decartTokenServer(env) {
     resolution: env.DECART_RESOLUTION || null,
     selfAnchor: env.DECART_SELF_ANCHOR === "true",
     enhance: env.DECART_ENHANCE === "true",
+    liveReference: env.DECART_LIVE_REFERENCE === "true",
   };
 
   const handler = async (req, res, next) => {
