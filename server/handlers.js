@@ -1,6 +1,6 @@
 // Server-side routes shared by the local Vite server and the Vercel function (api/[route].js).
-// The Decart API key never leaves this module; the browser only receives short-lived client tokens,
-// and only after the passcode has been checked.
+// The Decart API key never leaves this module; the browser only receives short-lived client tokens
+// scoped to this site's origin, and only after the passcode has been checked when one is configured.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const DECART_API = "https://api.decart.ai";
@@ -11,14 +11,16 @@ const LOGIN_MAX_FAILURES = 8;
 const TOKEN_WINDOW_MS = 10 * 60 * 1000;
 const TOKEN_MAX_PER_WINDOW = 40;
 
-// Best-effort, per server instance. The passcode itself is the real protection.
+// Best-effort, per server instance (each Vercel instance keeps its own counts).
 const loginFailures = new Map();
 const tokenCounts = new Map();
 
 function settings(env) {
+  const gateOff = /^(false|0|off|no)$/i.test(String(env.MAGIC_SCREEN_PASSCODE_ENABLED || "").trim());
   return {
     apiKey: env.DECART_API_KEY || "",
-    passcode: env.MAGIC_SCREEN_PASSCODE || "",
+    // Empty means no passcode gate: tokens and credits are served without a session cookie.
+    passcode: gateOff ? "" : String(env.MAGIC_SCREEN_PASSCODE || "").trim(),
     model: env.DECART_MODEL || "lucy-2.6",
     speed: env.DECART_SPEED || null,
     resolution: env.DECART_RESOLUTION || null,
@@ -77,8 +79,8 @@ function clientIp(req) {
   return String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
 }
 
-function origin(req) {
-  if (req.headers.origin) return req.headers.origin;
+// Tokens are scoped to the site that served the request, never to a caller-supplied Origin header.
+function siteOrigin(req) {
   return `${isHttps(req) ? "https" : "http"}://${req.headers["x-forwarded-host"] || req.headers.host}`;
 }
 
@@ -110,7 +112,14 @@ function bump(map, key, windowMs) {
 }
 
 function session(s, req) {
+  if (!s.passcode) return { open: true };
   return verify(s, cookies(req)[COOKIE]);
+}
+
+async function fetchCredits(s) {
+  const r = await fetch(`${DECART_API}/v1/credits`, { headers: { "x-api-key": s.apiKey } });
+  const body = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, credits: typeof body.credits === "number" ? body.credits : null };
 }
 
 const routes = {
@@ -120,14 +129,13 @@ const routes = {
   },
 
   async session(s, req, res) {
-    send(res, 200, { authenticated: !!session(s, req), configured: !!(s.apiKey && s.passcode) });
+    send(res, 200, { authenticated: !!session(s, req), gated: !!s.passcode, configured: !!s.apiKey });
   },
 
   async login(s, req, res) {
     if (req.method !== "POST") return send(res, 405, { error: "POST only" });
-    if (!s.apiKey || !s.passcode) {
-      return send(res, 500, { error: "Server is missing DECART_API_KEY or MAGIC_SCREEN_PASSCODE" });
-    }
+    if (!s.passcode) return send(res, 200, { ok: true, gated: false });
+    if (!s.apiKey) return send(res, 500, { error: "Server is missing DECART_API_KEY" });
     const ip = clientIp(req);
     const failures = loginFailures.get(ip);
     if (failures && Date.now() - failures.start < LOGIN_WINDOW_MS && failures.count >= LOGIN_MAX_FAILURES) {
@@ -156,15 +164,22 @@ const routes = {
   },
 
   async token(s, req, res) {
-    const sess = session(s, req);
-    if (!sess) return send(res, 401, { error: "Passcode required." });
-    if (bump(tokenCounts, sess.sid, TOKEN_WINDOW_MS) > TOKEN_MAX_PER_WINDOW) {
+    if (!session(s, req)) return send(res, 401, { error: "Passcode required." });
+    if (!s.apiKey) return send(res, 500, { error: "Server is missing DECART_API_KEY" });
+    const site = siteOrigin(req);
+    if (req.headers.origin && req.headers.origin !== site) return send(res, 403, { error: "Wrong origin." });
+    if (bump(tokenCounts, clientIp(req), TOKEN_WINDOW_MS) > TOKEN_MAX_PER_WINDOW) {
       return send(res, 429, { error: "Too many token requests." });
+    }
+    // Unreadable balance does not block, matching the browser's own credit check.
+    const { credits } = await fetchCredits(s).catch(() => ({ credits: null }));
+    if (credits !== null && credits < s.minCredits) {
+      return send(res, 402, { error: "Out of Decart credits." });
     }
     const r = await fetch(`${DECART_API}/v1/client/tokens`, {
       method: "POST",
       headers: { "x-api-key": s.apiKey, "content-type": "application/json" },
-      body: JSON.stringify({ expiresIn: 120, allowedModels: [s.model], allowedOrigins: [origin(req)] }),
+      body: JSON.stringify({ expiresIn: 120, allowedModels: [s.model], allowedOrigins: [site] }),
     });
     if (!r.ok) return send(res, 502, { error: `Token request failed (${r.status})` });
     const token = await r.json();
@@ -173,9 +188,8 @@ const routes = {
 
   async credits(s, req, res) {
     if (!session(s, req)) return send(res, 401, { error: "Passcode required." });
-    const r = await fetch(`${DECART_API}/v1/credits`, { headers: { "x-api-key": s.apiKey } });
-    const body = await r.json().catch(() => ({}));
-    send(res, r.ok ? 200 : 502, r.ok ? { credits: body.credits } : { error: `Credits request failed (${r.status})` });
+    const { ok, status, credits } = await fetchCredits(s);
+    send(res, ok ? 200 : 502, ok ? { credits } : { error: `Credits request failed (${status})` });
   },
 };
 
