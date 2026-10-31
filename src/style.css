@@ -56,23 +56,34 @@ body.idle * {
 /* The 16:9 picture sits inside a thin gold rule with a little black around it, like a card face,
    instead of being cropped and blown up edge to edge. */
 #frame {
-  --margin: 2.4cqh;
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(100cqw - 2 * var(--margin), (100cqh - 2 * var(--margin)) * 16 / 9);
-  aspect-ratio: 16 / 9;
-  transform: translate(-50%, -50%);
+  inset: 2.4vmin;
   border: 1px solid var(--gold);
   outline: 1px solid rgba(184, 149, 90, 0.45);
-  outline-offset: 0.5cqh;
+  outline-offset: 0.5vmin;
   background: #000;
 }
 
+/* Browsers without container units keep the full-stage frame above instead of a zero-size box. */
+@supports (width: 1cqw) {
+  #frame {
+    --margin: 2.4cqh;
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: min(100cqw - 2 * var(--margin), (100cqh - 2 * var(--margin)) * 16 / 9);
+    aspect-ratio: 16 / 9;
+    transform: translate(-50%, -50%);
+    outline-offset: 0.5cqh;
+  }
+}
+
 body.full-bleed #frame {
-  width: 100%;
-  height: 100%;
+  inset: 0;
+  width: auto;
+  height: auto;
   aspect-ratio: auto;
+  transform: none;
   border: 0;
   outline: 0;
 }
@@ -96,14 +107,6 @@ body.full-bleed #frame {
 body.live #output,
 body.live.sharpened #sharp {
   opacity: 1;
-}
-
-#sharp {
-  display: none;
-}
-
-body.sharpened #sharp {
-  display: block;
 }
 
 #freeze {

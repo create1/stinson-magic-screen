@@ -123,8 +123,22 @@ export function createUpscaler(video, canvas, { amount = 0.35 } = {}) {
     gl.uniform2f(uTexSize, vw, vh);
     gl.uniform4f(uCrop, ...coverCrop(vw, vh));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    if (gl.getError() !== gl.NO_ERROR) throw new Error("WebGL error while drawing the video");
     return true;
   }
 
-  return { draw, get lost() { return lost; } };
+  // Reads back the middle of what was just drawn. Some GPU/driver combinations upload WebRTC video
+  // as black without reporting an error, so the canvas is only trusted once it shows a picture.
+  const probe = new Uint8Array(64 * 64 * 4);
+  function hasPicture() {
+    const x = Math.max(0, Math.floor(canvas.width / 2) - 32);
+    const y = Math.max(0, Math.floor(canvas.height / 2) - 32);
+    gl.readPixels(x, y, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, probe);
+    for (let i = 0; i < probe.length; i += 4) {
+      if (probe[i] > 24 || probe[i + 1] > 24 || probe[i + 2] > 24) return true;
+    }
+    return false;
+  }
+
+  return { draw, hasPicture, get lost() { return lost; } };
 }

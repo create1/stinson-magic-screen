@@ -35,7 +35,11 @@ const video = $("#output");
 const freeze = $("#freeze");
 const freezeCtx = freeze.getContext("2d");
 // ?sharpen=0 shows the browser's own (bilinear) scaling instead of the bicubic + sharpen canvas.
-const upscaler = params.get("sharpen") === "0" ? null : safeUpscaler();
+let upscaler = params.get("sharpen") === "0" ? null : safeUpscaler();
+// The sharpened canvas covers the video only after it has drawn a real picture; otherwise the plain video stays.
+const SHARPEN_PROOF_MS = 3000;
+let sharpenVerified = false;
+let sharpenFirstTry = null;
 const plates = [...document.querySelectorAll(".plate")];
 const startButton = $("#start");
 const gate = $("#gate");
@@ -73,12 +77,37 @@ const state = {
 
 function safeUpscaler() {
   try {
-    const u = createUpscaler(video, $("#sharp"));
-    if (u) document.body.classList.add("sharpened");
-    return u;
+    return createUpscaler(video, $("#sharp"));
   } catch (err) {
     console.warn("[magic-screen] upscaler unavailable; using plain video", err);
     return null;
+  }
+}
+
+function disableUpscaler(reason) {
+  upscaler = null;
+  document.body.classList.remove("sharpened");
+  console.warn("[magic-screen] sharpening off, showing plain video:", reason);
+}
+
+function drawSharpened() {
+  if (!upscaler) return;
+  try {
+    if (!upscaler.draw()) {
+      if (upscaler.lost) disableUpscaler("WebGL context lost");
+      return;
+    }
+    if (sharpenVerified) return;
+    sharpenFirstTry ??= performance.now();
+    if (upscaler.hasPicture()) {
+      sharpenVerified = true;
+      document.body.classList.add("sharpened");
+      log("sharpened display verified");
+    } else if (performance.now() - sharpenFirstTry > SHARPEN_PROOF_MS) {
+      disableUpscaler(`no picture drawn within ${SHARPEN_PROOF_MS / 1000}s`);
+    }
+  } catch (err) {
+    disableUpscaler(String(err?.message || err));
   }
 }
 state.remainingMs = slotMs(state.index);
@@ -189,7 +218,7 @@ function onFrame() {
   const now = performance.now();
   if (state.connection === "generating") {
     state.lastFrameAt = now;
-    upscaler?.draw();
+    drawSharpened();
     if (state.config?.resolution === "1080p") state.hdConfirmed = true;
     if (!state.timerStarted) {
       state.timerStarted = true;
@@ -530,7 +559,7 @@ function renderOperator() {
     model: state.config ? `${state.config.model}${state.config.speed ? ` (${state.config.speed})` : ""}` : "…",
     "lucy out": describeVideo(state.stats?.video),
     "camera in": describeVideo(state.stats?.outboundVideo),
-    display: `${Math.round(video.clientWidth * devicePixelRatio)}×${Math.round(video.clientHeight * devicePixelRatio)}${upscaler ? " sharpened" : ""}`,
+    display: `${Math.round(video.clientWidth * devicePixelRatio)}×${Math.round(video.clientHeight * devicePixelRatio)}${sharpenVerified && upscaler ? " sharpened" : " plain"}`,
     error: state.lastError || "—",
   };
   operator.querySelector(".status").innerHTML = Object.entries(rows)
