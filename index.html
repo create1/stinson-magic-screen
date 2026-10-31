@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stinson Magic Screen</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <div id="stage">
+      <video id="output" autoplay playsinline muted></video>
+      <canvas id="freeze"></canvas>
+      <div id="plates">
+        <div class="plate"><img class="thumb" alt="" /><span class="name"></span></div>
+        <div class="plate"><img class="thumb" alt="" /><span class="name"></span></div>
+      </div>
+      <button id="start" type="button" hidden>Click to start.</button>
+      <aside id="operator" hidden>
+        <img class="card" alt="" />
+        <div class="details">
+          <h2 class="title"></h2>
+          <p class="prompt"></p>
+          <dl class="status"></dl>
+          <p class="keys">→ next · ← back · Space pause · F fullscreen · M mute · O close</p>
+        </div>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

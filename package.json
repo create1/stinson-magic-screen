@@ -1,0 +1,19 @@
+{
+  "name": "stinson-magic-screen",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Kiosk display that turns the person on camera into a tarot character with Decart Lucy realtime",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite build && vite preview"
+  },
+  "dependencies": {
+    "@decartai/sdk": "0.2.14",
+    "@fontsource/cormorant-sc": "^5.3.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
+}

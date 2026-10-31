@@ -1,0 +1,208 @@
+:root {
+  --parchment: #e9dbb8;
+  --gold: #b8955a;
+  --ink: #050403;
+  --fade: 600ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+body.idle,
+body.idle * {
+  cursor: none !important;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Portrait window: rotate the stage so the picture still reads as landscape on a panel mounted sideways. */
+@media (orientation: portrait) {
+  #stage {
+    inset: auto;
+    top: 0;
+    left: 0;
+    width: 100vh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg) translateY(-100%);
+  }
+}
+
+#output,
+#freeze {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+#output {
+  opacity: 0;
+}
+
+body.live #output {
+  opacity: 1;
+}
+
+#freeze {
+  visibility: hidden;
+}
+
+body.frozen #freeze {
+  visibility: visible;
+}
+
+/* Nameplate */
+#plates {
+  position: absolute;
+  left: 50%;
+  bottom: 3.2vh;
+  transform: translateX(-50%);
+  height: 6.4vh;
+  min-height: 44px;
+  pointer-events: none;
+}
+
+.plate {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1.1vh;
+  height: 100%;
+  padding: 0 2.6vh 0 0.7vh;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #0d0a07 0%, var(--ink) 55%, #0b0806 100%);
+  border: 1px solid var(--gold);
+  outline: 1px solid rgba(184, 149, 90, 0.45);
+  outline-offset: 3px;
+  box-shadow: 0 0 2.4vh rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  transition: opacity var(--fade) ease-in-out;
+}
+
+.plate.shown {
+  opacity: 1;
+}
+
+.plate .thumb {
+  height: 82%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border: 1px solid rgba(184, 149, 90, 0.7);
+  border-radius: 2px;
+}
+
+.plate .name {
+  font-family: "Cormorant SC", "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  font-variant: small-caps;
+  font-weight: 500;
+  font-size: 3vh;
+  letter-spacing: 0.14em;
+  color: var(--parchment);
+  text-shadow: 0 1px 0 #000, 0 0 0.6vh rgba(233, 219, 184, 0.18);
+}
+
+.plate .name::before,
+.plate .name::after {
+  content: "✦";
+  font-size: 0.55em;
+  color: var(--gold);
+  vertical-align: 0.35em;
+  margin: 0 0.9em;
+}
+
+/* Start prompt when fullscreen was blocked */
+#start {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: #000;
+  color: var(--parchment);
+  font-family: "Cormorant SC", Georgia, serif;
+  font-size: 4vh;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+/* Operator reference (O key) */
+#operator {
+  position: absolute;
+  top: 3vh;
+  right: 3vh;
+  display: flex;
+  gap: 2vh;
+  max-width: 64vw;
+  padding: 2vh;
+  background: rgba(5, 4, 3, 0.9);
+  border: 1px solid var(--gold);
+  color: var(--parchment);
+  font: 1.7vh/1.4 Georgia, serif;
+}
+
+#operator .card {
+  height: 42vh;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+#operator h2 {
+  margin: 0 0 1vh;
+  font-family: "Cormorant SC", Georgia, serif;
+  font-size: 3vh;
+  font-weight: 500;
+}
+
+#operator .prompt {
+  margin: 0 0 1.5vh;
+  opacity: 0.85;
+}
+
+#operator dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3vh 1.5vh;
+  margin: 0 0 1.5vh;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 1.5vh;
+}
+
+#operator dt {
+  color: var(--gold);
+}
+
+#operator dd {
+  margin: 0;
+}
+
+#operator .keys {
+  margin: 0;
+  color: var(--gold);
+  font-size: 1.5vh;
+}
