@@ -49,7 +49,36 @@ body.idle * {
   }
 }
 
+#stage {
+  container-type: size;
+}
+
+/* The 16:9 picture sits inside a thin gold rule with a little black around it, like a card face,
+   instead of being cropped and blown up edge to edge. */
+#frame {
+  --margin: 2.4cqh;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(100cqw - 2 * var(--margin), (100cqh - 2 * var(--margin)) * 16 / 9);
+  aspect-ratio: 16 / 9;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--gold);
+  outline: 1px solid rgba(184, 149, 90, 0.45);
+  outline-offset: 0.5cqh;
+  background: #000;
+}
+
+body.full-bleed #frame {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  outline: 0;
+}
+
 #output,
+#sharp,
 #freeze {
   position: absolute;
   inset: 0;
@@ -59,12 +88,22 @@ body.idle * {
   background: #000;
 }
 
-#output {
+#output,
+#sharp {
   opacity: 0;
 }
 
-body.live #output {
+body.live #output,
+body.live.sharpened #sharp {
   opacity: 1;
+}
+
+#sharp {
+  display: none;
+}
+
+body.sharpened #sharp {
+  display: block;
 }
 
 #freeze {

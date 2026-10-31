@@ -23,7 +23,8 @@ function settings(env) {
     passcode: gateOff ? "" : String(env.MAGIC_SCREEN_PASSCODE || "").trim(),
     model: env.DECART_MODEL || "lucy-2.6",
     speed: env.DECART_SPEED || null,
-    resolution: env.DECART_RESOLUTION || null,
+    // Lucy generates 1280x720; "1080p" asks Decart for a 1080p remote stream. "720p" opts out.
+    resolution: env.DECART_RESOLUTION === "720p" ? null : "1080p",
     selfAnchor: env.DECART_SELF_ANCHOR === "true",
     enhance: env.DECART_ENHANCE === "true",
     liveReference: env.DECART_LIVE_REFERENCE === "true",

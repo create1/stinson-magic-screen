@@ -2,8 +2,14 @@ import "@fontsource/cormorant-sc/500.css";
 import "./style.css";
 import { createDecartClient, models } from "@decartai/sdk";
 import { characters as allCharacters } from "./characters.js";
+import { createUpscaler } from "./upscaler.js";
+import { preferResolutionOnVideoSenders } from "./webrtc-tuning.js";
+
+preferResolutionOnVideoSenders();
 
 const params = new URLSearchParams(location.search);
+// ?frame=0 fills the screen edge to edge instead of the gold-framed picture.
+if (params.get("frame") === "0") document.body.classList.add("full-bleed");
 // ?seconds=N shortens every slot (testing only); ?start=N begins at roster position N (1-based).
 const secondsOverride = Number(params.get("seconds")) || null;
 const startPosition = Math.max(1, Number(params.get("start")) || 1);
@@ -21,11 +27,15 @@ const PLATE_SWAP_FALLBACK_MS = 1500;
 const CREDIT_POLL_MS = 10000;
 const OUT_OF_CREDITS = "Out of Decart credits. Top up, then click to start.";
 const PASSCODE_REQUIRED = "Passcode required.";
+// A 1080p dial that has not produced a frame after this many attempts falls back to 720p for this page.
+const HD_MAX_ATTEMPTS = 2;
 
 const $ = (sel) => document.querySelector(sel);
 const video = $("#output");
 const freeze = $("#freeze");
 const freezeCtx = freeze.getContext("2d");
+// ?sharpen=0 shows the browser's own (bilinear) scaling instead of the bicubic + sharpen canvas.
+const upscaler = params.get("sharpen") === "0" ? null : safeUpscaler();
 const plates = [...document.querySelectorAll(".plate")];
 const startButton = $("#start");
 const gate = $("#gate");
@@ -56,7 +66,21 @@ const state = {
   halted: false,
   lastError: null,
   swaps: [],
+  hdAttempts: 0,
+  hdConfirmed: false,
+  stats: null,
 };
+
+function safeUpscaler() {
+  try {
+    const u = createUpscaler(video, $("#sharp"));
+    if (u) document.body.classList.add("sharpened");
+    return u;
+  } catch (err) {
+    console.warn("[magic-screen] upscaler unavailable; using plain video", err);
+    return null;
+  }
+}
 state.remainingMs = slotMs(state.index);
 
 function slotMs(index) {
@@ -165,6 +189,8 @@ function onFrame() {
   const now = performance.now();
   if (state.connection === "generating") {
     state.lastFrameAt = now;
+    upscaler?.draw();
+    if (state.config?.resolution === "1080p") state.hdConfirmed = true;
     if (!state.timerStarted) {
       state.timerStarted = true;
       document.body.classList.add("live");
@@ -222,12 +248,15 @@ async function ensureCamera() {
   const live = state.camera?.getVideoTracks().some((t) => t.readyState === "live");
   if (live) return state.camera;
   state.camera?.getTracks().forEach((t) => t.stop());
+  // Lucy works at its own input size (1280x720); a larger camera frame only gets scaled down and
+  // spreads the same uplink bitrate over more pixels.
+  const model = models.realtime(state.config.model);
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      aspectRatio: { ideal: 16 / 9 },
+      width: { ideal: model.width },
+      height: { ideal: model.height },
+      aspectRatio: { ideal: model.width / model.height },
       frameRate: { ideal: 30 },
     },
   });
@@ -262,7 +291,13 @@ async function connect() {
       state.config = await (await fetch("/api/config")).json();
       if (params.has("enhance")) state.config.enhance = params.get("enhance") === "true";
       if (params.has("ref")) state.config.liveReference = params.get("ref") === "true";
+      // ?res=720p or ?res=1080p overrides DECART_RESOLUTION for side-by-side comparisons on the real screen.
+      if (params.has("res")) state.config.resolution = params.get("res") === "1080p" ? "1080p" : null;
       state.decart = createDecartClient({ apiKeyProvider: fetchToken });
+    }
+    if (state.config.resolution === "1080p" && !state.hdConfirmed && ++state.hdAttempts > HD_MAX_ATTEMPTS) {
+      log("1080p output never started; falling back to 720p");
+      state.config.resolution = null;
     }
     const { model, speed, resolution, selfAnchor } = state.config;
     if (!(await hasCredits())) return halt(OUT_OF_CREDITS);
@@ -300,6 +335,9 @@ async function connect() {
     state.retryDelay = RETRY_MIN_MS;
     client.on("generationTick", ({ seconds }) => {
       state.sessionSeconds = seconds;
+    });
+    client.on("stats", (stats) => {
+      if (isCurrent()) state.stats = stats;
     });
     client.on("error", (err) => {
       if (!isCurrent()) return;
@@ -471,6 +509,13 @@ wake();
 
 // ---------- Operator reference ----------
 
+function describeVideo(v) {
+  if (!v?.frameWidth) return "…";
+  const kbps = v.bitrate ? ` · ${Math.round(v.bitrate / 1000)} kbps` : "";
+  const limit = v.qualityLimitationReason && v.qualityLimitationReason !== "none" ? ` · limited by ${v.qualityLimitationReason}` : "";
+  return `${v.frameWidth}×${v.frameHeight} @ ${Math.round(v.framesPerSecond || 0)} fps${kbps}${limit}`;
+}
+
 function renderOperator() {
   if (operator.hidden) return;
   const c = current();
@@ -483,6 +528,9 @@ function renderOperator() {
     session: `${state.sessionSeconds}s billed`,
     credits: state.credits ?? "…",
     model: state.config ? `${state.config.model}${state.config.speed ? ` (${state.config.speed})` : ""}` : "…",
+    "lucy out": describeVideo(state.stats?.video),
+    "camera in": describeVideo(state.stats?.outboundVideo),
+    display: `${Math.round(video.clientWidth * devicePixelRatio)}×${Math.round(video.clientHeight * devicePixelRatio)}${upscaler ? " sharpened" : ""}`,
     error: state.lastError || "—",
   };
   operator.querySelector(".status").innerHTML = Object.entries(rows)
@@ -511,6 +559,9 @@ window.magicScreen = {
     healthy: isHealthy(),
     sessionId: state.client?.sessionId ?? null,
     sessionSeconds: state.sessionSeconds,
+    resolutionRequested: state.config?.resolution ?? "720p",
+    lucyOut: describeVideo(state.stats?.video),
+    cameraIn: describeVideo(state.stats?.outboundVideo),
     credits: state.credits,
     halted: state.halted,
     swaps: state.swaps,
